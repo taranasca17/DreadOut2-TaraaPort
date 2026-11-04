@@ -3,7 +3,7 @@ name: Build DreadOut 2 TaraaPort APK
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Memungkinkan tombol "Run workflow" diklik manual di web GitHub
+  workflow_dispatch:
 
 jobs:
   build-android:
@@ -19,22 +19,19 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 3. Siapkan Android SDK & NDK r26d
-        uses: android-actions/setup-android@v3
-
-      - name: 4. Instal NDK 26.3.11579264 & CMake 3.22.1
+      - name: 3. Setujui Lisensi Android SDK Otomatis
         run: |
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264" "cmake;3.22.1"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: 5. Siapkan Gradle 8.7 (Otomatis tanpa gradle-wrapper)
+      - name: 4. Siapkan Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: 6. Compile Kode C++ Vulkan & Build APK Debug
+      - name: 5. Compile Kode C++ Vulkan & Build APK Debug
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: 7. Sediakan File APK untuk Diunduh
+      - name: 6. Sediakan File APK untuk Diunduh
         uses: actions/upload-artifact@v4
         with:
           name: DreadOut2-TaraaPort-Debug-APK
