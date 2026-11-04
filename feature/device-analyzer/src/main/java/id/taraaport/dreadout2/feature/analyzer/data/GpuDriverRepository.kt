@@ -1,4 +1,4 @@
-package id.taraaport.dreadout2.feature.analyzer.data
+﻿package id.taraaport.dreadout2.feature.analyzer.data
 
 import android.content.Context
 import android.net.Uri
@@ -31,7 +31,7 @@ class GpuDriverRepository(private val context: Context) {
 
         try {
             val inputStream = context.contentResolver.openInputStream(uri)
-                ?: return@withContext Result.failure(IllegalArgumentException("Gagal membaca file ZIP dari penyimpanan."))
+                ?: return@withContext Result.failure(IllegalArgumentException("Gagal membaca file ZIP dari penyimpanan HP."))
 
             var foundMetaJson = false
             val extractedFiles = mutableListOf<File>()
@@ -40,7 +40,6 @@ class GpuDriverRepository(private val context: Context) {
                 var entry = zis.nextEntry
                 while (entry != null) {
                     if (!entry.isDirectory) {
-                        // Cegah Zip Slip vulnerability & ratakan file ke dalam folder targetDir
                         val safeFileName = File(entry.name).name
                         val outFile = File(targetDir, safeFileName)
                         FileOutputStream(outFile).use { fos ->
@@ -58,10 +57,9 @@ class GpuDriverRepository(private val context: Context) {
 
             if (extractedFiles.isEmpty()) {
                 targetDir.deleteRecursively()
-                return@withContext Result.failure(IllegalArgumentException("File ZIP kosong atau rusak."))
+                return@withContext Result.failure(IllegalArgumentException("File ZIP kosong atau bukan arsip ZIP yang valid."))
             }
 
-            // Parsing meta.json (Format standar AdrenoTools / Turnip) atau fallback deteksi .so langsung
             val metaFile = File(targetDir, "meta.json")
             val name: String
             val author: String
@@ -72,14 +70,13 @@ class GpuDriverRepository(private val context: Context) {
 
             if (foundMetaJson && metaFile.exists()) {
                 val json = JSONObject(metaFile.readText())
-                name = json.optString("name", "Custom Adreno Driver")
+                name = json.optString("name", "Custom Turnip Driver")
                 author = json.optString("author", "Community")
                 version = json.optString("driverVersion", json.optString("version", "1.0"))
                 libName = json.optString("libraryName", "vulkan.adreno.so")
                 minApi = json.optInt("minApi", 29)
                 desc = json.optString("description", "Paket driver Vulkan kustom AdrenoTools")
             } else {
-                // Jika tidak ada meta.json, cari file .so Vulkan secara langsung
                 val firstSo = extractedFiles.firstOrNull { it.name.endsWith(".so", ignoreCase = true) }
                 if (firstSo == null) {
                     targetDir.deleteRecursively()
@@ -89,17 +86,16 @@ class GpuDriverRepository(private val context: Context) {
                 }
                 name = firstSo.nameWithoutExtension
                 author = "Custom Import"
-                version = "Unknown"
+                version = "1.0"
                 libName = firstSo.name
                 minApi = 29
-                desc = "Diimpor tanpa meta.json (${firstSo.name})"
+                desc = "Diimpor langsung (${firstSo.name})"
             }
 
-            // Periksa syarat minimum Android SDK API
             if (Build.VERSION.SDK_INT < minApi) {
                 targetDir.deleteRecursively()
                 return@withContext Result.failure(
-                    IllegalArgumentException("Driver ini membutuhkan minimal Android API $minApi, sedangkan perangkat Anda API ${Build.VERSION.SDK_INT}.")
+                    IllegalArgumentException("Driver membutuhkan minimal Android API $minApi (Perangkat Anda: API ${Build.VERSION.SDK_INT}).")
                 )
             }
 
@@ -107,11 +103,10 @@ class GpuDriverRepository(private val context: Context) {
             if (!soFile.exists()) {
                 targetDir.deleteRecursively()
                 return@withContext Result.failure(
-                    IllegalArgumentException("File pustaka utama '$libName' yang tertulis di meta.json tidak ditemukan di dalam ZIP.")
+                    IllegalArgumentException("File '$libName' yang tertulis di meta.json tidak ditemukan di dalam ZIP.")
                 )
             }
 
-            // Uji keaslian binari ELF ARM64 & simbol ICD melalui JNI C++
             val (isVerified, verifyMsg) = VulkanNativeBridge.verifyDriverSoFile(soFile.absolutePath)
             if (!isVerified) {
                 targetDir.deleteRecursively()
@@ -120,7 +115,6 @@ class GpuDriverRepository(private val context: Context) {
                 )
             }
 
-            // Simpan metadata terstandarisasi agar mudah dimuat ulang
             val savedMeta = JSONObject().apply {
                 put("id", tempId)
                 put("name", name)
@@ -134,18 +128,19 @@ class GpuDriverRepository(private val context: Context) {
             }
             File(targetDir, "taraaport_driver_info.json").writeText(savedMeta.toString(2))
 
-            val pkg = GpuDriverPackage(
-                id = tempId,
-                name = name,
-                author = author,
-                driverVersion = version,
-                libraryName = libName,
-                minApi = minApi,
-                description = desc,
-                extractedSoPath = soFile.absolutePath,
-                isNativeVerified = true
+            Result.success(
+                GpuDriverPackage(
+                    id = tempId,
+                    name = name,
+                    author = author,
+                    driverVersion = version,
+                    libraryName = libName,
+                    minApi = minApi,
+                    description = desc,
+                    extractedSoPath = soFile.absolutePath,
+                    isNativeVerified = true
+                )
             )
-            Result.success(pkg)
         } catch (e: Exception) {
             targetDir.deleteRecursively()
             Result.failure(e)

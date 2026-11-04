@@ -1,4 +1,4 @@
-package id.taraaport.dreadout2.feature.analyzer.model
+﻿package id.taraaport.dreadout2.feature.analyzer.model
 
 data class GpuDriverPackage(
     val id: String,
@@ -14,7 +14,7 @@ data class GpuDriverPackage(
 
 data class DriverManagerState(
     val isCustomDriverSupported: Boolean,
-    val activeDriverId: String?, // null = Menggunakan Driver Bawaan Sistem (Default)
+    val activeDriverId: String?,
     val installedDrivers: List<GpuDriverPackage>,
     val statusMessage: String? = null,
     val isErrorStatus: Boolean = false

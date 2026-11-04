@@ -1,5 +1,9 @@
-package id.taraaport.dreadout2.feature.analyzer.ui
+﻿package id.taraaport.dreadout2.feature.analyzer.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,9 +24,11 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,6 +42,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.taraaport.dreadout2.feature.analyzer.model.AnisotropicLevel
 import id.taraaport.dreadout2.feature.analyzer.model.CompatibilityReport
 import id.taraaport.dreadout2.feature.analyzer.model.CompatibilityTier
+import id.taraaport.dreadout2.feature.analyzer.model.DriverManagerState
+import id.taraaport.dreadout2.feature.analyzer.model.GpuDriverPackage
 import id.taraaport.dreadout2.feature.analyzer.model.GraphicsConfig
 import id.taraaport.dreadout2.feature.analyzer.model.ResolutionScale
 import java.util.Locale
@@ -47,10 +55,18 @@ fun DeviceAnalyzerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    val zipPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.importGpuDriverFromUri(uri)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("DreadOut 2 TaraaPort — System & Graphics") }
+                title = { Text("TaraaPort v0.3 — System, Graphics & Driver") }
             )
         }
     ) { innerPadding ->
@@ -82,7 +98,12 @@ fun DeviceAnalyzerScreen(
                         state = state,
                         onRefresh = { viewModel.refreshHardwareSpecs() },
                         onApplyAutoGraphics = { viewModel.applyAutoGraphics() },
-                        onUpdateGraphics = { viewModel.updateCustomGraphics(it) }
+                        onUpdateGraphics = { viewModel.updateCustomGraphics(it) },
+                        onImportDriverClick = {
+                            zipPickerLauncher.launch("*/*")
+                        },
+                        onSelectDriver = { viewModel.selectGpuDriver(it) },
+                        onDeleteDriver = { viewModel.deleteGpuDriver(it) }
                     )
                 }
             }
@@ -95,7 +116,10 @@ private fun AnalyzerAndGraphicsContent(
     state: AnalyzerUiState.Success,
     onRefresh: () -> Unit,
     onApplyAutoGraphics: () -> Unit,
-    onUpdateGraphics: (GraphicsConfig) -> Unit
+    onUpdateGraphics: (GraphicsConfig) -> Unit,
+    onImportDriverClick: () -> Unit,
+    onSelectDriver: (GpuDriverPackage?) -> Unit,
+    onDeleteDriver: (String) -> Unit
 ) {
     val spec = state.spec
     Column(
@@ -115,7 +139,16 @@ private fun AnalyzerAndGraphicsContent(
         // 1. Kartu Compatibility Analyzer
         CompatibilityCard(report = state.compatibility)
 
-        // 2. Kartu Auto Graphics & Graphics Manager
+        // 2. Kartu GPU Driver Manager (TAHAP 3 - TEPAT DI BAWAH STATUS PLAYABLE)
+        GpuDriverManagerCard(
+            gpuName = spec.gpuInfo.rendererName,
+            driverState = state.driverState,
+            onImportClick = onImportDriverClick,
+            onSelectDriver = onSelectDriver,
+            onDeleteDriver = onDeleteDriver
+        )
+
+        // 3. Kartu Auto Graphics & Graphics Manager
         GraphicsManagerCard(
             activeConfig = state.activeConfig,
             configIniPath = state.configIniPath,
@@ -123,7 +156,7 @@ private fun AnalyzerAndGraphicsContent(
             onConfigChange = onUpdateGraphics
         )
 
-        // 3. Kartu Detail Hardware (Tahap 1)
+        // 4. Kartu Detail Hardware
         SpecSectionCard(title = "GPU & Vulkan (Native NDK)") {
             SpecRow("Model GPU", spec.gpuInfo.rendererName)
             SpecRow("Vendor ID", "0x${spec.gpuInfo.vendorId.toString(16).uppercase()}")
@@ -153,12 +186,106 @@ private fun AnalyzerAndGraphicsContent(
 }
 
 @Composable
+private fun GpuDriverManagerCard(
+    gpuName: String,
+    driverState: DriverManagerState,
+    onImportClick: () -> Unit,
+    onSelectDriver: (GpuDriverPackage?) -> Unit,
+    onDeleteDriver: (String) -> Unit
+) {
+    SpecSectionCard(title = "GPU Driver Manager (AdrenoTools / Turnip)") {
+        Text(
+            text = "Pilih file paket driver Turnip / Qualcomm (.zip) dari penyimpanan HP untuk menutup kekurangan ekstensi Vulkan pada $gpuName.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Button(
+            onClick = onImportClick,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("+ Impor Turnip Driver (.ZIP) dari Penyimpanan HP")
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        OutlinedButton(
+            onClick = { onSelectDriver(null) },
+            enabled = driverState.activeDriverId != null,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Reset ke Driver Bawaan Sistem")
+        }
+
+        if (driverState.statusMessage != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = driverState.statusMessage,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = if (driverState.isErrorStatus) MaterialTheme.colorScheme.error else Color(0xFF81C784)
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(
+                selected = driverState.activeDriverId == null,
+                onClick = { onSelectDriver(null) }
+            )
+            Column(modifier = Modifier.padding(start = 8.dp)) {
+                Text("Driver Bawaan Sistem (Default OEM)", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Menggunakan libvulkan.so bawaan pabrik ($gpuName)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        driverState.installedDrivers.forEach { pkg ->
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(0.8f)
+                ) {
+                    RadioButton(
+                        selected = driverState.activeDriverId == pkg.id,
+                        onClick = { onSelectDriver(pkg) }
+                    )
+                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                        Text("${pkg.name} (${pkg.driverVersion})", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Oleh: ${pkg.author} | Lib: ${pkg.libraryName}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                TextButton(onClick = { onDeleteDriver(pkg.id) }) {
+                    Text("Hapus", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CompatibilityCard(report: CompatibilityReport) {
     val badgeColor = when (report.tier) {
-        CompatibilityTier.OPTIMAL -> Color(0xFF2E7D32)     // Hijau
-        CompatibilityTier.PLAYABLE -> Color(0xFF1565C0)    // Biru
-        CompatibilityTier.LIMITED -> Color(0xFFEF6C00)     // Oranye
-        CompatibilityTier.UNSUPPORTED -> Color(0xFFC62828) // Merah
+        CompatibilityTier.OPTIMAL -> Color(0xFF2E7D32)
+        CompatibilityTier.PLAYABLE -> Color(0xFF1565C0)
+        CompatibilityTier.LIMITED -> Color(0xFFEF6C00)
+        CompatibilityTier.UNSUPPORTED -> Color(0xFFC62828)
     }
 
     Card(
@@ -258,7 +385,12 @@ private fun GraphicsManagerCard(
 
         Spacer(modifier = Modifier.height(8.dp))
         Text("Anisotropic Filtering:", fontWeight = FontWeight.Medium)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             AnisotropicLevel.entries.forEach { level ->
                 FilterChip(
                     selected = activeConfig.anisotropicFiltering == level,

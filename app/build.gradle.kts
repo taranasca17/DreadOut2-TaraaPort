@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
@@ -11,8 +11,8 @@ android {
         applicationId = "id.taraaport.dreadout2"
         minSdk = 29
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-alpha"
+        versionCode = 3
+        versionName = "0.3.0-alpha"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

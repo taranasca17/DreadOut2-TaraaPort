@@ -1,4 +1,4 @@
-package id.taraaport.dreadout2.feature.analyzer.ui
+﻿package id.taraaport.dreadout2.feature.analyzer.ui
 
 import android.app.Application
 import android.net.Uri
@@ -91,14 +91,8 @@ class DeviceAnalyzerViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun importGpuDriverFromUri(uri: Uri) {
-        val current = _uiState.value as? AnalyzerUiState.Success ?: return
-        if (!current.driverState.isCustomDriverSupported) {
-            updateDriverMessage("Perangkat ini menggunakan GPU Non-Adreno dan tidak mendukung custom driver.", true)
-            return
-        }
-
         viewModelScope.launch {
-            updateDriverMessage("Memeriksa struktur ZIP & memvalidasi simbol Vulkan ARM64...", false)
+            updateDriverMessage("Mengekstrak ZIP & memverifikasi simbol Vulkan ARM64...", false)
             val result = driverRepo.importDriverZip(uri)
             result.fold(
                 onSuccess = { newPkg ->

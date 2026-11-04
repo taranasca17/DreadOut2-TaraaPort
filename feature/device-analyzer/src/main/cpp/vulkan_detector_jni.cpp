@@ -1,4 +1,4 @@
-#include <jni.h>
+﻿#include <jni.h>
 #include <vulkan/vulkan.h>
 #include <android/log.h>
 #include <dlfcn.h>
@@ -106,10 +106,7 @@ Java_id_taraaport_dreadout2_feature_analyzer_nativebridge_VulkanNativeBridge_ver
         return env->NewStringUTF("ERR|Path file native kosong");
     }
 
-    // Bersihkan error dlopen sebelumnya
     dlerror();
-
-    // Coba muat library driver secara lokal untuk memvalidasi format ELF ARM64
     void* handle = dlopen(pathStr, RTLD_NOW | RTLD_LOCAL);
     env->ReleaseStringUTFChars(soFilePath, pathStr);
 
@@ -119,10 +116,9 @@ Java_id_taraaport_dreadout2_feature_analyzer_nativebridge_VulkanNativeBridge_ver
         return env->NewStringUTF(("ERR|" + errMsg).c_str());
     }
 
-    // Cari titik masuk standar driver Vulkan Android / ICD
     void* symStandard = dlsym(handle, "vkGetInstanceProcAddr");
     void* symIcd = dlsym(handle, "vk_icdGetInstanceProcAddr");
-    void* symHal = dlsym(handle, "HMI"); // Simbol HAL modul Android (vulkan.adreno.so)
+    void* symHal = dlsym(handle, "HMI");
 
     dlclose(handle);
 

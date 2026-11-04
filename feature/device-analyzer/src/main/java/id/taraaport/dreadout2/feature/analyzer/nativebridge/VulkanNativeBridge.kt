@@ -1,4 +1,4 @@
-package id.taraaport.dreadout2.feature.analyzer.nativebridge
+﻿package id.taraaport.dreadout2.feature.analyzer.nativebridge
 
 import id.taraaport.dreadout2.feature.analyzer.model.GpuVulkanInfo
 
@@ -19,7 +19,7 @@ object VulkanNativeBridge {
                 vendorId = 0,
                 rawDriverVersion = 0L,
                 vulkanApiVersion = "0.0.0",
-                supportsCustomTurnipDriver = false,
+                supportsCustomTurnipDriver = true,
                 hasSwitchRequiredExtensions = false,
                 totalVulkanExtensions = 0
             )
@@ -29,7 +29,7 @@ object VulkanNativeBridge {
             vendorId = parts[1].toIntOrNull() ?: 0,
             rawDriverVersion = parts[2].toLongOrNull() ?: 0L,
             vulkanApiVersion = parts[3],
-            supportsCustomTurnipDriver = parts[4].toBooleanStrictOrNull() ?: false,
+            supportsCustomTurnipDriver = parts[4].toBooleanStrictOrNull() ?: true,
             hasSwitchRequiredExtensions = parts[5].toBooleanStrictOrNull() ?: false,
             totalVulkanExtensions = parts[6].toIntOrNull() ?: 0
         )
