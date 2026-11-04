@@ -16,20 +16,28 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.taraaport.dreadout2.feature.analyzer.model.DeviceSpec
+import id.taraaport.dreadout2.feature.analyzer.model.AnisotropicLevel
+import id.taraaport.dreadout2.feature.analyzer.model.CompatibilityReport
+import id.taraaport.dreadout2.feature.analyzer.model.CompatibilityTier
+import id.taraaport.dreadout2.feature.analyzer.model.GraphicsConfig
+import id.taraaport.dreadout2.feature.analyzer.model.ResolutionScale
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,7 +50,7 @@ fun DeviceAnalyzerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("DreadOut 2 TaraaPort — Device Analyzer") }
+                title = { Text("DreadOut 2 TaraaPort — System & Graphics") }
             )
         }
     ) { innerPadding ->
@@ -70,9 +78,11 @@ fun DeviceAnalyzerScreen(
                     }
                 }
                 is AnalyzerUiState.Success -> {
-                    DeviceSpecContent(
-                        spec = state.spec,
-                        onRefresh = { viewModel.refreshHardwareSpecs() }
+                    AnalyzerAndGraphicsContent(
+                        state = state,
+                        onRefresh = { viewModel.refreshHardwareSpecs() },
+                        onApplyAutoGraphics = { viewModel.applyAutoGraphics() },
+                        onUpdateGraphics = { viewModel.updateCustomGraphics(it) }
                     )
                 }
             }
@@ -81,10 +91,13 @@ fun DeviceAnalyzerScreen(
 }
 
 @Composable
-private fun DeviceSpecContent(
-    spec: DeviceSpec,
-    onRefresh: () -> Unit
+private fun AnalyzerAndGraphicsContent(
+    state: AnalyzerUiState.Success,
+    onRefresh: () -> Unit,
+    onApplyAutoGraphics: () -> Unit,
+    onUpdateGraphics: (GraphicsConfig) -> Unit
 ) {
+    val spec = state.spec
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -92,13 +105,25 @@ private fun DeviceSpecContent(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Button(
+        OutlinedButton(
             onClick = onRefresh,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Pindai Ulang Perangkat Keras & Status Termal")
         }
 
+        // 1. Kartu Compatibility Analyzer
+        CompatibilityCard(report = state.compatibility)
+
+        // 2. Kartu Auto Graphics & Graphics Manager
+        GraphicsManagerCard(
+            activeConfig = state.activeConfig,
+            configIniPath = state.configIniPath,
+            onApplyAuto = onApplyAutoGraphics,
+            onConfigChange = onUpdateGraphics
+        )
+
+        // 3. Kartu Detail Hardware (Tahap 1)
         SpecSectionCard(title = "GPU & Vulkan (Native NDK)") {
             SpecRow("Model GPU", spec.gpuInfo.rendererName)
             SpecRow("Vendor ID", "0x${spec.gpuInfo.vendorId.toString(16).uppercase()}")
@@ -114,31 +139,182 @@ private fun DeviceSpecContent(
             )
         }
 
-        SpecSectionCard(title = "Prosesor (CPU & ABI)") {
+        SpecSectionCard(title = "Prosesor, Memori & Termal") {
             SpecRow("SoC / Board", spec.socModel)
-            SpecRow("Hardware Info", spec.cpuHardware)
-            SpecRow("Jumlah Core", "${spec.cpuCores} Cores")
+            SpecRow("CPU Cores & Max Freq", "${spec.cpuCores} Cores (${spec.maxCpuFreqMhz} MHz)")
+            SpecRow("Total / Tersedia RAM", "${spec.totalRamMb} MB / ${spec.availableRamMb} MB")
             SpecRow(
-                "Frekuensi Maksimum",
-                if (spec.maxCpuFreqMhz > 0) "${spec.maxCpuFreqMhz} MHz" else "Tidak Terbaca"
-            )
-            SpecRow("Instruksi ABI", spec.supportedAbis.joinToString(", "))
-        }
-
-        SpecSectionCard(title = "Memori (RAM) & Penyimpanan") {
-            SpecRow("Total RAM", "${spec.totalRamMb} MB")
-            SpecRow("RAM Tersedia Saat Ini", "${spec.availableRamMb} MB")
-            SpecRow(
-                "Penyimpanan Internal Bebas",
+                "Penyimpanan Bebas",
                 String.format(Locale.US, "%.2f GB / %.2f GB", spec.freeStorageGb, spec.totalStorageGb)
             )
+            SpecRow("Status Termal & Suhu", "${spec.thermalStatusLabel} (${spec.batteryTempCelsius} °C)")
+        }
+    }
+}
+
+@Composable
+private fun CompatibilityCard(report: CompatibilityReport) {
+    val badgeColor = when (report.tier) {
+        CompatibilityTier.OPTIMAL -> Color(0xFF2E7D32)     // Hijau
+        CompatibilityTier.PLAYABLE -> Color(0xFF1565C0)    // Biru
+        CompatibilityTier.LIMITED -> Color(0xFFEF6C00)     // Oranye
+        CompatibilityTier.UNSUPPORTED -> Color(0xFFC62828) // Merah
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = badgeColor.copy(alpha = 0.15f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Status: ${report.tier.label.uppercase()}",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = badgeColor
+                )
+                Text(
+                    text = "Skor: ${report.score}/100",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(text = report.tier.summary, style = MaterialTheme.typography.bodyMedium)
+
+            if (report.blockers.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text("Kendala Utama (Blocker):", fontWeight = FontWeight.Bold, color = Color(0xFFEF5350))
+                report.blockers.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            }
+
+            if (report.warnings.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text("Catatan Peringatan:", fontWeight = FontWeight.Bold, color = Color(0xFFFFB74D))
+                report.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            }
+
+            if (report.reasons.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text("Hasil Analisis Positif:", fontWeight = FontWeight.Bold)
+                report.reasons.forEach { Text("✓ $it", style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GraphicsManagerCard(
+    activeConfig: GraphicsConfig,
+    configIniPath: String,
+    onApplyAuto: () -> Unit,
+    onConfigChange: (GraphicsConfig) -> Unit
+) {
+    SpecSectionCard(title = "Graphics Manager & Auto Graphics") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (activeConfig.isAutoRecommended) "Mode: Auto Recommended" else "Mode: Kustom Manual",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Button(onClick = onApplyAuto) {
+                Text("Reset ke Auto Graphics")
+            }
         }
 
-        SpecSectionCard(title = "Sistem Operasi & Termal") {
-            SpecRow("Versi Android", "Android ${spec.androidVersion} (API ${spec.sdkInt})")
-            SpecRow("Status Termal Sistem", spec.thermalStatusLabel)
-            SpecRow("Suhu Baterai", "${spec.batteryTempCelsius} °C")
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Skala Resolusi Internal:", fontWeight = FontWeight.Medium)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            ResolutionScale.entries.forEach { scale ->
+                FilterChip(
+                    selected = activeConfig.resolutionScale == scale,
+                    onClick = { onConfigChange(activeConfig.copy(resolutionScale = scale)) },
+                    label = { Text(scale.label) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Batas Frame Rate (FPS):", fontWeight = FontWeight.Medium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(30, 60).forEach { fps ->
+                FilterChip(
+                    selected = activeConfig.targetFpsLimit == fps,
+                    onClick = { onConfigChange(activeConfig.copy(targetFpsLimit = fps)) },
+                    label = { Text("$fps FPS") }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Anisotropic Filtering:", fontWeight = FontWeight.Medium)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AnisotropicLevel.entries.forEach { level ->
+                FilterChip(
+                    selected = activeConfig.anisotropicFiltering == level,
+                    onClick = { onConfigChange(activeConfig.copy(anisotropicFiltering = level)) },
+                    label = { Text(level.label) }
+                )
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        ToggleOptionRow(
+            label = "VSync (Cegah Screen Tearing)",
+            checked = activeConfig.vsyncEnabled,
+            onCheckedChange = { onConfigChange(activeConfig.copy(vsyncEnabled = it)) }
+        )
+        ToggleOptionRow(
+            label = "Asynchronous Shader Compilation",
+            checked = activeConfig.asyncShaderCompilation,
+            onCheckedChange = { onConfigChange(activeConfig.copy(asyncShaderCompilation = it)) }
+        )
+        ToggleOptionRow(
+            label = "Simpan Disk Shader Cache",
+            checked = activeConfig.diskShaderCache,
+            onCheckedChange = { onConfigChange(activeConfig.copy(diskShaderCache = it)) }
+        )
+        ToggleOptionRow(
+            label = "Force Maximum GPU Clocks (Adreno)",
+            checked = activeConfig.forceMaxGpuClocks,
+            onCheckedChange = { onConfigChange(activeConfig.copy(forceMaxGpuClocks = it)) }
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Tersimpan otomatis di: $configIniPath",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ToggleOptionRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.8f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
