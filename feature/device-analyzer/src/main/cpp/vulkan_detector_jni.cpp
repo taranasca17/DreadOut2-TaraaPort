@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <vulkan/vulkan.h>
 #include <android/log.h>
+#include <dlfcn.h>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -55,12 +56,10 @@ Java_id_taraaport_dreadout2_feature_analyzer_nativebridge_VulkanNativeBridge_que
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-    // Ambil Physical Device utama (indeks 0 pada SoC Android)
     VkPhysicalDevice physicalDevice = devices[0];
     VkPhysicalDeviceProperties deviceProps{};
     vkGetPhysicalDeviceProperties(physicalDevice, &deviceProps);
 
-    // Periksa ekstensi perangkat yang krusial untuk emulasi Switch (UE4)
     uint32_t extCount = 0;
     vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extCount, nullptr);
     std::vector<VkExtensionProperties> extensions(extCount);
@@ -79,9 +78,6 @@ Java_id_taraaport_dreadout2_feature_analyzer_nativebridge_VulkanNativeBridge_que
         }
     }
 
-    // Format string berbatas pipa (|) untuk diparsing di Kotlin dengan aman:
-    // deviceName|vendorId|driverVersion|apiVersion|supportsCustomDriver|hasTransformFeedback|extCount
-    // Catatan: Vendor ID Qualcomm Adreno di Vulkan adalah 0x5143 (20803)
     bool isQualcommAdreno = (deviceProps.vendorID == 0x5143) ||
                             (std::strstr(deviceProps.deviceName, "Adreno") != nullptr);
 
@@ -96,4 +92,43 @@ Java_id_taraaport_dreadout2_feature_analyzer_nativebridge_VulkanNativeBridge_que
 
     vkDestroyInstance(instance, nullptr);
     return env->NewStringUTF(payload.str().c_str());
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_id_taraaport_dreadout2_feature_analyzer_nativebridge_VulkanNativeBridge_verifyCustomDriverLibraryNative(
+        JNIEnv* env,
+        jobject /* this */,
+        jstring soFilePath) {
+
+    const char* pathStr = env->GetStringUTFChars(soFilePath, nullptr);
+    if (pathStr == nullptr) {
+        return env->NewStringUTF("ERR|Path file native kosong");
+    }
+
+    // Bersihkan error dlopen sebelumnya
+    dlerror();
+
+    // Coba muat library driver secara lokal untuk memvalidasi format ELF ARM64
+    void* handle = dlopen(pathStr, RTLD_NOW | RTLD_LOCAL);
+    env->ReleaseStringUTFChars(soFilePath, pathStr);
+
+    if (handle == nullptr) {
+        const char* err = dlerror();
+        std::string errMsg = err ? err : "Gagal memuat library .so (Bukan ELF ARM64 yang valid)";
+        return env->NewStringUTF(("ERR|" + errMsg).c_str());
+    }
+
+    // Cari titik masuk standar driver Vulkan Android / ICD
+    void* symStandard = dlsym(handle, "vkGetInstanceProcAddr");
+    void* symIcd = dlsym(handle, "vk_icdGetInstanceProcAddr");
+    void* symHal = dlsym(handle, "HMI"); // Simbol HAL modul Android (vulkan.adreno.so)
+
+    dlclose(handle);
+
+    if (symStandard != nullptr || symIcd != nullptr || symHal != nullptr) {
+        return env->NewStringUTF("OK|Simbol ICD/HAL Vulkan ARM64 terverifikasi");
+    } else {
+        return env->NewStringUTF("ERR|File .so bukan driver Vulkan yang valid (Simbol ICD tidak ditemukan)");
+    }
 }

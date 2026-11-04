@@ -8,6 +8,7 @@ object VulkanNativeBridge {
     }
 
     private external fun queryVulkanGpuInfoNative(): String
+    private external fun verifyCustomDriverLibraryNative(soFilePath: String): String
 
     fun getGpuVulkanInfo(): GpuVulkanInfo {
         val raw = queryVulkanGpuInfoNative()
@@ -32,5 +33,12 @@ object VulkanNativeBridge {
             hasSwitchRequiredExtensions = parts[5].toBooleanStrictOrNull() ?: false,
             totalVulkanExtensions = parts[6].toIntOrNull() ?: 0
         )
+    }
+
+    fun verifyDriverSoFile(soFilePath: String): Pair<Boolean, String> {
+        val res = verifyCustomDriverLibraryNative(soFilePath)
+        val isOk = res.startsWith("OK|")
+        val msg = res.substringAfter("|", "Tidak diketahui")
+        return Pair(isOk, msg)
     }
 }
