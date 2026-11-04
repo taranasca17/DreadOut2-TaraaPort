@@ -6,13 +6,12 @@ plugins {
 android {
     namespace = "id.taraaport.dreadout2.feature.analyzer"
     compileSdk = 34
-    ndkVersion = "26.3.11579264" // NDK r26d LTS
+    ndkVersion = "26.3.11579264"
 
     defaultConfig {
-        minSdk = 29 // Android 10+ (Wajib untuk Thermal API & Vulkan 1.1 stabil)
+        minSdk = 29
 
         ndk {
-            // Mengunci target khusus ARM64 sesuai persyaratan emulator Switch
             abiFilters += listOf("arm64-v8a")
         }
 
@@ -52,6 +51,7 @@ android {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
+    implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
