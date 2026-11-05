@@ -2,7 +2,6 @@ package id.taraaport.dreadout2.feature.analyzer.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
@@ -15,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,7 +57,7 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("DreadOut 2 TaraaPort v0.5 â€” Launcher") }) }
+        topBar = { TopAppBar(title = { Text("DreadOut 2 TaraaPort v0.6 — Complete Edition") }) }
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (val state = uiState) {
@@ -74,7 +74,6 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // 1. KARTU UTAMA: GAME LAUNCHER & ROM VALIDATOR (TAHAP 5)
                         GameLauncherCard(
                             launchState = state.launchState,
                             activeResolution = state.activeConfig.resolutionScale.label,
@@ -93,10 +92,8 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             }
                         )
 
-                        // 2. Kartu Compatibility Analyzer
                         CompatibilityCard(report = state.compatibility)
 
-                        // 3. Kartu Save Data & Prod.keys Manager
                         SaveAndKeysManagerCard(
                             saveState = state.saveState,
                             onImportKeysClick = { prodKeysLauncher.launch("*/*") },
@@ -107,7 +104,6 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             onImportSaveClick = { importSaveZipLauncher.launch("*/*") }
                         )
 
-                        // 4. Kartu GPU Driver Manager
                         GpuDriverManagerCard(
                             gpuName = state.spec.gpuInfo.rendererName,
                             driverState = state.driverState,
@@ -116,7 +112,6 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             onDeleteDriver = { viewModel.deleteGpuDriver(it) }
                         )
 
-                        // 5. Kartu Graphics Manager
                         GraphicsManagerCard(
                             activeConfig = state.activeConfig,
                             configIniPath = state.configIniPath,
@@ -124,7 +119,6 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             onConfigChange = { viewModel.updateCustomGraphics(it) }
                         )
 
-                        // 6. Kartu Detail Hardware
                         SpecSectionCard(title = "GPU & Vulkan (Native NDK)") {
                             SpecRow("Model GPU", state.spec.gpuInfo.rendererName)
                             SpecRow("Vendor ID", "0x${state.spec.gpuInfo.vendorId.toString(16).uppercase()}")
@@ -139,7 +133,7 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             SpecRow("CPU Cores & Max Freq", "${state.spec.cpuCores} Cores (${state.spec.maxCpuFreqMhz} MHz)")
                             SpecRow("Total / Tersedia RAM", "${state.spec.totalRamMb} MB / ${state.spec.availableRamMb} MB")
                             SpecRow("Penyimpanan Bebas", String.format(Locale.US, "%.2f GB / %.2f GB", state.spec.freeStorageGb, state.spec.totalStorageGb))
-                            SpecRow("Status Termal & Suhu", "${state.spec.thermalStatusLabel} (${state.spec.batteryTempCelsius} Â°C)")
+                            SpecRow("Status Termal & Suhu", "${state.spec.thermalStatusLabel} (${state.spec.batteryTempCelsius} °C)")
                         }
 
                         OutlinedButton(onClick = { viewModel.refreshHardwareSpecs() }, modifier = Modifier.fillMaxWidth()) {
@@ -161,7 +155,7 @@ private fun GameLauncherCard(
     onLaunchGameClick: () -> Unit
 ) {
     val rom = launchState.romInfo
-    SpecSectionCard(title = "Game Launcher & NSP/XCI Validator (Tahap 5)") {
+    SpecSectionCard(title = "Game Launcher & NSP/XCI Validator (Tahap 5 & 6)") {
         SpecRow("Berkas Game", rom.fileName)
         SpecRow("Format Kontainer", rom.format.label)
         SpecRow("Ukuran & Title ID", "${rom.fileSizeFormatted} | ID: ${rom.detectedTitleId}")
@@ -221,7 +215,7 @@ private fun ChecklistItem(label: String, isReady: Boolean) {
     ) {
         Text(text = label, style = MaterialTheme.typography.bodySmall)
         Text(
-            text = if (isReady) "âœ“ SIAP" else "âœ— BELUM",
+            text = if (isReady) "✓ SIAP" else "✗ BELUM",
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Bold,
             color = if (isReady) Color(0xFF81C784) else Color(0xFFFFB74D)
@@ -365,12 +359,12 @@ private fun CompatibilityCard(report: CompatibilityReport) {
             if (report.warnings.isNotEmpty()) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text("Catatan Peringatan:", fontWeight = FontWeight.Bold, color = Color(0xFFFFB74D))
-                report.warnings.forEach { Text("â€¢ $it", style = MaterialTheme.typography.bodySmall) }
+                report.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
             }
             if (report.reasons.isNotEmpty()) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text("Hasil Analisis Positif:", fontWeight = FontWeight.Bold)
-                report.reasons.forEach { Text("âœ“ $it", style = MaterialTheme.typography.bodySmall) }
+                report.reasons.forEach { Text("✓ $it", style = MaterialTheme.typography.bodySmall) }
             }
         }
     }

@@ -1,4 +1,4 @@
-﻿package id.taraaport.dreadout2.feature.analyzer.ui
+package id.taraaport.dreadout2.feature.analyzer.ui
 
 import android.app.Application
 import android.net.Uri
@@ -126,10 +126,7 @@ class DeviceAnalyzerViewModel(application: Application) : AndroidViewModel(appli
             val res = romRepo.createSampleDreadOutNsp(targetUri)
             val current = _uiState.value as? AnalyzerUiState.Success ?: return@launch
             res.fold(
-                onSuccess = {
-                    // Langsung daftarkan file sampel yang baru dibuat
-                    selectGameRomUri(targetUri)
-                },
+                onSuccess = { selectGameRomUri(targetUri) },
                 onFailure = { err ->
                     _uiState.value = current.copy(
                         launchState = current.launchState.copy(
@@ -143,7 +140,7 @@ class DeviceAnalyzerViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun triggerBootValidation(): String? {
-        val current = _uiState.value as? AnalyzerUiState.Success ?: return
+        val current = _uiState.value as? AnalyzerUiState.Success ?: return null
         val activeDriver = current.driverState.installedDrivers.find { it.id == current.driverState.activeDriverId }
         val manifestPath = romRepo.generateBootManifest(
             romInfo = current.launchState.romInfo,
@@ -155,7 +152,11 @@ class DeviceAnalyzerViewModel(application: Application) : AndroidViewModel(appli
         _uiState.value = current.copy(
             launchState = current.launchState.copy(
                 bootManifestPath = manifestPath,
-                statusMessage = "Meluncurkan Layar Emulasi DreadOut 2...", isErrorStatus = false)); return manifestPath
+                statusMessage = "Meluncurkan Layar Emulasi DreadOut 2...",
+                isErrorStatus = false
+            )
+        )
+        return manifestPath
     }
 
     fun applyAutoGraphics() {
