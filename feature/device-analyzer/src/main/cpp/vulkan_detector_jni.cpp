@@ -1,3 +1,4 @@
+#include "yuzu_core.h"
 #include <jni.h>
 #include <vulkan/vulkan.h>
 #include <android/log.h>
@@ -359,7 +360,7 @@ Java_id_taraaport_dreadout2_feature_analyzer_nativebridge_VulkanNativeBridge_ini
                       << " partisi internal, Tabel String: " << hdr.stringTableSize << " B\n";
         }
     }
-    logStream << "[BOOT-6] Native ANativeWindow Render Loop Siap Dijalankan!\n";
+    auto coreRes = YuzuCore::InitializeAndInspectRom(romFd, keyPath ? keyPath : "", drvPath ? drvPath : "SYSTEM"); logStream << coreRes.statusLog << "[BOOT-6] Native ANativeWindow Render Loop & Core Terhubung!\n";
 
     if (drvPath) env->ReleaseStringUTFChars(driverPathStr, drvPath);
     if (keyPath) env->ReleaseStringUTFChars(keysPathStr, keyPath);

@@ -1,19 +1,18 @@
 cmake_minimum_required(VERSION 3.22.1)
 project("taraaport_analyzer" LANGUAGES CXX)
-
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -ffast-math")
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(PREBUILT_YUZU_CORE "${CMAKE_CURRENT_SOURCE_DIR}/libs/${ANDROID_ABI}/libyuzu_core.a")
+if(EXISTS "${PREBUILT_YUZU_CORE}")
+    add_library(yuzu_core STATIC IMPORTED)
+    set_target_properties(yuzu_core PROPERTIES IMPORTED_LOCATION "${PREBUILT_YUZU_CORE}")
+else()
+    add_library(yuzu_core STATIC yuzu_core_src/yuzu_core.cpp)
+endif()
 find_library(log-lib log)
 find_library(vulkan-lib vulkan)
 find_library(android-lib android)
-
-add_library(
-    taraaport_analyzer
-    SHARED
-    vulkan_detector_jni.cpp
-)
-
-target_link_libraries(
-    taraaport_analyzer
-    ${log-lib}
-    ${vulkan-lib}
-    ${android-lib}
-)
+add_library(taraaport_analyzer SHARED vulkan_detector_jni.cpp)
+target_link_libraries(taraaport_analyzer yuzu_core ${log-lib} ${vulkan-lib} ${android-lib})
