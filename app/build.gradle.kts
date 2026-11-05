@@ -11,8 +11,8 @@ android {
         applicationId = "id.taraaport.dreadout2"
         minSdk = 29
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.4.0-alpha"
+        versionCode = 5
+        versionName = "0.5.0-alpha"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

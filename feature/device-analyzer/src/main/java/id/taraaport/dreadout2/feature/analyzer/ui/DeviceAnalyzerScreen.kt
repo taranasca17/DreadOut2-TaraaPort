@@ -25,6 +25,16 @@ import java.util.Locale
 fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    val romPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) viewModel.selectGameRomUri(uri)
+    }
+
+    val createSampleNspLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        if (uri != null) viewModel.generateSampleNspFile(uri)
+    }
+
     val driverZipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) viewModel.importGpuDriverFromUri(uri)
     }
@@ -44,7 +54,7 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("TaraaPort v0.4 — System, Driver & Save") }) }
+        topBar = { TopAppBar(title = { Text("DreadOut 2 TaraaPort v0.5 — Launcher") }) }
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (val state = uiState) {
@@ -61,12 +71,21 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        OutlinedButton(onClick = { viewModel.refreshHardwareSpecs() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Pindai Ulang Perangkat Keras & Status Termal")
-                        }
+                        // 1. KARTU UTAMA: GAME LAUNCHER & ROM VALIDATOR (TAHAP 5)
+                        GameLauncherCard(
+                            launchState = state.launchState,
+                            activeResolution = state.activeConfig.resolutionScale.label,
+                            onSelectRomClick = { romPickerLauncher.launch("*/*") },
+                            onCreateSampleNspClick = {
+                                createSampleNspLauncher.launch("DreadOut2_0100626015258000_Test.nsp")
+                            },
+                            onLaunchGameClick = { viewModel.triggerBootValidation() }
+                        )
 
+                        // 2. Kartu Compatibility Analyzer
                         CompatibilityCard(report = state.compatibility)
 
+                        // 3. Kartu Save Data & Prod.keys Manager
                         SaveAndKeysManagerCard(
                             saveState = state.saveState,
                             onImportKeysClick = { prodKeysLauncher.launch("*/*") },
@@ -77,6 +96,7 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             onImportSaveClick = { importSaveZipLauncher.launch("*/*") }
                         )
 
+                        // 4. Kartu GPU Driver Manager
                         GpuDriverManagerCard(
                             gpuName = state.spec.gpuInfo.rendererName,
                             driverState = state.driverState,
@@ -85,6 +105,7 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             onDeleteDriver = { viewModel.deleteGpuDriver(it) }
                         )
 
+                        // 5. Kartu Graphics Manager
                         GraphicsManagerCard(
                             activeConfig = state.activeConfig,
                             configIniPath = state.configIniPath,
@@ -92,6 +113,7 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             onConfigChange = { viewModel.updateCustomGraphics(it) }
                         )
 
+                        // 6. Kartu Detail Hardware
                         SpecSectionCard(title = "GPU & Vulkan (Native NDK)") {
                             SpecRow("Model GPU", state.spec.gpuInfo.rendererName)
                             SpecRow("Vendor ID", "0x${state.spec.gpuInfo.vendorId.toString(16).uppercase()}")
@@ -108,10 +130,91 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             SpecRow("Penyimpanan Bebas", String.format(Locale.US, "%.2f GB / %.2f GB", state.spec.freeStorageGb, state.spec.totalStorageGb))
                             SpecRow("Status Termal & Suhu", "${state.spec.thermalStatusLabel} (${state.spec.batteryTempCelsius} °C)")
                         }
+
+                        OutlinedButton(onClick = { viewModel.refreshHardwareSpecs() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Pindai Ulang Seluruh Sistem")
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GameLauncherCard(
+    launchState: LaunchReadinessState,
+    activeResolution: String,
+    onSelectRomClick: () -> Unit,
+    onCreateSampleNspClick: () -> Unit,
+    onLaunchGameClick: () -> Unit
+) {
+    val rom = launchState.romInfo
+    SpecSectionCard(title = "Game Launcher & NSP/XCI Validator (Tahap 5)") {
+        SpecRow("Berkas Game", rom.fileName)
+        SpecRow("Format Kontainer", rom.format.label)
+        SpecRow("Ukuran & Title ID", "${rom.fileSizeFormatted} | ID: ${rom.detectedTitleId}")
+        SpecRow("Driver Vulkan Aktif", launchState.activeDriverLabel)
+        SpecRow("Target Resolusi", activeResolution)
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text("Daftar Periksa Pra-Peluncuran (Pre-Flight Check):", fontWeight = FontWeight.SemiBold)
+        Spacer(modifier = Modifier.height(4.dp))
+        ChecklistItem("1. Perangkat Keras ARM64 & Vulkan 1.1+", launchState.isHardwareSupported)
+        ChecklistItem("2. Kunci Dekripsi Switch (prod.keys)", launchState.isKeysReady)
+        ChecklistItem("3. Berkas Game DreadOut 2 (NSP/XCI Valid)", launchState.isRomReady)
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onSelectRomClick, modifier = Modifier.weight(1f)) {
+                Text("Pilih File NSP / XCI")
+            }
+            OutlinedButton(onClick = onCreateSampleNspClick, modifier = Modifier.weight(1f)) {
+                Text("Buat Sampel NSP")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onLaunchGameClick,
+            enabled = launchState.canLaunchGame,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = if (launchState.canLaunchGame) "LUNCURKAN DREADOUT 2 (SIAP BOOT)" else "LENGKAPI SYARAT DI ATAS UNTUK BOOT",
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        if (launchState.statusMessage != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = launchState.statusMessage,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = if (launchState.isErrorStatus) MaterialTheme.colorScheme.error else Color(0xFF81C784)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChecklistItem(label: String, isReady: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodySmall)
+        Text(
+            text = if (isReady) "✓ SIAP" else "✗ BELUM",
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
+            color = if (isReady) Color(0xFF81C784) else Color(0xFFFFB74D)
+        )
     }
 }
 
@@ -127,7 +230,6 @@ private fun SaveAndKeysManagerCard(
     val keysInfo = saveState.keysInfo
 
     SpecSectionCard(title = "Save Data & Prod.keys Manager (Tahap 4)") {
-        // Bagian 1: Prod.keys
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -148,7 +250,6 @@ private fun SaveAndKeysManagerCard(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-        // Bagian 2: Info Save Data DreadOut 2
         Text("Save Data DreadOut 2 (ID: ${saveInfo.titleId})", fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(4.dp))
         SpecRow("Status Progres", if (saveInfo.hasSaveData) "${saveInfo.totalFilesCount} berkas (${saveInfo.totalSizeBytes} B)" else "Kosong")
@@ -156,31 +257,18 @@ private fun SaveAndKeysManagerCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
-                onClick = onExportSaveClick,
-                enabled = saveInfo.hasSaveData,
-                modifier = Modifier.weight(1f)
-            ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onExportSaveClick, enabled = saveInfo.hasSaveData, modifier = Modifier.weight(1f)) {
                 Text("Backup Save (.ZIP)")
             }
-            Button(
-                onClick = onImportSaveClick,
-                modifier = Modifier.weight(1f)
-            ) {
+            Button(onClick = onImportSaveClick, modifier = Modifier.weight(1f)) {
                 Text("Restore Save (.ZIP)")
             }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        OutlinedButton(
-            onClick = onInitDummySaveClick,
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        OutlinedButton(onClick = onInitDummySaveClick, modifier = Modifier.fillMaxWidth()) {
             Text("Inisialisasi Slot Save Awal (Untuk Tes Backup)")
         }
 
