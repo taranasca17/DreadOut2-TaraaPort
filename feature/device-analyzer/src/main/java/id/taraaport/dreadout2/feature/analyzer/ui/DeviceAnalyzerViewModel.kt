@@ -1,4 +1,4 @@
-package id.taraaport.dreadout2.feature.analyzer.ui
+﻿package id.taraaport.dreadout2.feature.analyzer.ui
 
 import android.app.Application
 import android.net.Uri
@@ -142,7 +142,7 @@ class DeviceAnalyzerViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun triggerBootValidation() {
+    fun triggerBootValidation(): String? {
         val current = _uiState.value as? AnalyzerUiState.Success ?: return
         val activeDriver = current.driverState.installedDrivers.find { it.id == current.driverState.activeDriverId }
         val manifestPath = romRepo.generateBootManifest(
@@ -155,10 +155,7 @@ class DeviceAnalyzerViewModel(application: Application) : AndroidViewModel(appli
         _uiState.value = current.copy(
             launchState = current.launchState.copy(
                 bootManifestPath = manifestPath,
-                statusMessage = "SIAP MELUNCUR! Kontrak Boot Manifest berhasil ditulis ke: $manifestPath",
-                isErrorStatus = false
-            )
-        )
+                statusMessage = "Meluncurkan Layar Emulasi DreadOut 2...", isErrorStatus = false)); return manifestPath
     }
 
     fun applyAutoGraphics() {

@@ -1,6 +1,8 @@
 package id.taraaport.dreadout2.feature.analyzer.ui
 
+import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
@@ -23,6 +25,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val romPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -54,7 +57,7 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("DreadOut 2 TaraaPort v0.5 — Launcher") }) }
+        topBar = { TopAppBar(title = { Text("DreadOut 2 TaraaPort v0.5 â€” Launcher") }) }
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (val state = uiState) {
@@ -79,7 +82,15 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             onCreateSampleNspClick = {
                                 createSampleNspLauncher.launch("DreadOut2_0100626015258000_Test.nsp")
                             },
-                            onLaunchGameClick = { viewModel.triggerBootValidation() }
+                            onLaunchGameClick = {
+                                val path = viewModel.triggerBootValidation()
+                                if (path != null) {
+                                    val intent = Intent(context, EmulationActivity::class.java).apply {
+                                        putExtra("BOOT_MANIFEST_PATH", path)
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            }
                         )
 
                         // 2. Kartu Compatibility Analyzer
@@ -128,7 +139,7 @@ fun DeviceAnalyzerScreen(viewModel: DeviceAnalyzerViewModel = viewModel()) {
                             SpecRow("CPU Cores & Max Freq", "${state.spec.cpuCores} Cores (${state.spec.maxCpuFreqMhz} MHz)")
                             SpecRow("Total / Tersedia RAM", "${state.spec.totalRamMb} MB / ${state.spec.availableRamMb} MB")
                             SpecRow("Penyimpanan Bebas", String.format(Locale.US, "%.2f GB / %.2f GB", state.spec.freeStorageGb, state.spec.totalStorageGb))
-                            SpecRow("Status Termal & Suhu", "${state.spec.thermalStatusLabel} (${state.spec.batteryTempCelsius} °C)")
+                            SpecRow("Status Termal & Suhu", "${state.spec.thermalStatusLabel} (${state.spec.batteryTempCelsius} Â°C)")
                         }
 
                         OutlinedButton(onClick = { viewModel.refreshHardwareSpecs() }, modifier = Modifier.fillMaxWidth()) {
@@ -210,7 +221,7 @@ private fun ChecklistItem(label: String, isReady: Boolean) {
     ) {
         Text(text = label, style = MaterialTheme.typography.bodySmall)
         Text(
-            text = if (isReady) "✓ SIAP" else "✗ BELUM",
+            text = if (isReady) "âœ“ SIAP" else "âœ— BELUM",
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Bold,
             color = if (isReady) Color(0xFF81C784) else Color(0xFFFFB74D)
@@ -354,12 +365,12 @@ private fun CompatibilityCard(report: CompatibilityReport) {
             if (report.warnings.isNotEmpty()) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text("Catatan Peringatan:", fontWeight = FontWeight.Bold, color = Color(0xFFFFB74D))
-                report.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                report.warnings.forEach { Text("â€¢ $it", style = MaterialTheme.typography.bodySmall) }
             }
             if (report.reasons.isNotEmpty()) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text("Hasil Analisis Positif:", fontWeight = FontWeight.Bold)
-                report.reasons.forEach { Text("✓ $it", style = MaterialTheme.typography.bodySmall) }
+                report.reasons.forEach { Text("âœ“ $it", style = MaterialTheme.typography.bodySmall) }
             }
         }
     }

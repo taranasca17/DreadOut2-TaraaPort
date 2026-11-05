@@ -1,28 +1,18 @@
-﻿package id.taraaport.dreadout2.feature.analyzer.nativebridge
+package id.taraaport.dreadout2.feature.analyzer.nativebridge
 
 import id.taraaport.dreadout2.feature.analyzer.model.GpuVulkanInfo
 
 object VulkanNativeBridge {
-    init {
-        System.loadLibrary("taraaport_analyzer")
-    }
-
+    init { System.loadLibrary("taraaport_analyzer") }
     private external fun queryVulkanGpuInfoNative(): String
     private external fun verifyCustomDriverLibraryNative(soFilePath: String): String
+    private external fun initializeEmulationBootNative(romFd: Int, driverPathStr: String, keysPathStr: String): String
 
     fun getGpuVulkanInfo(): GpuVulkanInfo {
         val raw = queryVulkanGpuInfoNative()
         val parts = raw.split("|")
         if (parts.size < 7) {
-            return GpuVulkanInfo(
-                rendererName = "Unknown / Error",
-                vendorId = 0,
-                rawDriverVersion = 0L,
-                vulkanApiVersion = "0.0.0",
-                supportsCustomTurnipDriver = true,
-                hasSwitchRequiredExtensions = false,
-                totalVulkanExtensions = 0
-            )
+            return GpuVulkanInfo("Unknown", 0, 0L, "0.0.0", true, false, 0)
         }
         return GpuVulkanInfo(
             rendererName = parts[0],
@@ -37,8 +27,10 @@ object VulkanNativeBridge {
 
     fun verifyDriverSoFile(soFilePath: String): Pair<Boolean, String> {
         val res = verifyCustomDriverLibraryNative(soFilePath)
-        val isOk = res.startsWith("OK|")
-        val msg = res.substringAfter("|", "Tidak diketahui")
-        return Pair(isOk, msg)
+        return Pair(res.startsWith("OK|"), res.substringAfter("|", "Tidak diketahui"))
+    }
+
+    fun startNativeBootSequence(romFd: Int, driverPath: String, keysPath: String): String {
+        return initializeEmulationBootNative(romFd, driverPath, keysPath)
     }
 }
