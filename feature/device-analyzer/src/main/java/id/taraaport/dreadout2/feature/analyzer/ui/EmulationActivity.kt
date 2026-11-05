@@ -1,5 +1,6 @@
 package id.taraaport.dreadout2.feature.analyzer.ui
 
+import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -24,11 +25,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,12 +45,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
-import kotlin.math.roundToInt
 
 class EmulationActivity : ComponentActivity() {
 
@@ -147,11 +150,34 @@ private fun DreadOutMobileHudScreen(
     initialBootLog: String,
     onExitEmulation: () -> Unit
 ) {
+    val context = LocalContext.current
+    val hudPrefs = remember { context.getSharedPreferences("taraaport_hud_prefs", Context.MODE_PRIVATE) }
+
+    // State Pengaturan Kustomisasi HUD (Tersimpan Permanen)
+    var hudOpacity by remember { mutableFloatStateOf(hudPrefs.getFloat("hud_opacity", 0.85f)) }
+    var buttonScale by remember { mutableFloatStateOf(hudPrefs.getFloat("hud_scale", 1.0f)) }
+    var lookSensitivity by remember { mutableFloatStateOf(hudPrefs.getFloat("look_sensitivity", 1.0f)) }
+
+    var showHudCustomizer by remember { mutableStateOf(false) }
     var showDiagnosticsOverlay by remember { mutableStateOf(false) }
     var showTouchControls by remember { mutableStateOf(true) }
     var isIrisCameraMode by remember { mutableStateOf(false) }
     var isFlashlightOn by remember { mutableStateOf(false) }
     var lastActionText by remember { mutableStateOf("Mode Eksplorasi") }
+
+    // State Sudut Pandang Kamera (Right-Stick Touch Look)
+    var cameraYaw by remember { mutableFloatStateOf(0f) }
+    var cameraPitch by remember { mutableFloatStateOf(0f) }
+    var crosshairOffset by remember { mutableStateOf(Offset.Zero) }
+
+    fun saveHudSettings(opacity: Float, scale: Float, sens: Float) {
+        hudPrefs.edit().apply {
+            putFloat("hud_opacity", opacity)
+            putFloat("hud_scale", scale)
+            putFloat("look_sensitivity", sens)
+            apply()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -180,7 +206,70 @@ private fun DreadOutMobileHudScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. Efek Bingkai Viewfinder saat Mode Kamera IrisPhone Aktif
+        // 2. ZONA USAP KAMERA (RIGHT-SIDE TOUCH LOOK / RIGHT-STICK SWIPE)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.58f)
+                .fillMaxHeight()
+                .align(Alignment.CenterEnd)
+                .pointerInput(lookSensitivity) {
+                    detectDragGestures(
+                        onDragEnd = {
+                            crosshairOffset = Offset.Zero
+                        },
+                        onDragCancel = {
+                            crosshairOffset = Offset.Zero
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val dx = dragAmount.x * 0.18f * lookSensitivity
+                            val dy = dragAmount.y * 0.18f * lookSensitivity
+
+                            cameraYaw = (cameraYaw + dx) % 360f
+                            cameraPitch = (cameraPitch - dy).coerceIn(-85f, 85f)
+
+                            crosshairOffset = Offset(
+                                x = (crosshairOffset.x + dragAmount.x * 0.35f).coerceIn(-90f, 90f),
+                                y = (crosshairOffset.y + dragAmount.y * 0.35f).coerceIn(-60f, 60f)
+                            )
+
+                            lastActionText = String.format(
+                                Locale.US,
+                                "Kamera R-Stick (Yaw: %.0f°, Pitch: %.0f°)",
+                                cameraYaw,
+                                cameraPitch
+                            )
+                        }
+                    )
+                }
+        )
+
+        // 3. Indikator Crosshair Dinamis & Viewfinder Kamera IrisPhone
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset { IntOffset(crosshairOffset.x.roundToInt(), crosshairOffset.y.roundToInt()) },
+            contentAlignment = Alignment.Center
+        ) {
+            if (isIrisCameraMode) {
+                Box(
+                    modifier = Modifier
+                        .size(110.dp)
+                        .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.65f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "+", color = Color(0xFFFF5252), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.35f))
+                )
+            }
+        }
+
         if (isIrisCameraMode) {
             Box(
                 modifier = Modifier
@@ -189,9 +278,9 @@ private fun DreadOutMobileHudScreen(
                     .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.45f), RoundedCornerShape(12.dp))
             ) {
                 Text(
-                    text = "● REC [IRIS-GHOST-CAM]",
+                    text = "● REC [IRIS-GHOST-CAM] | Usap layar kanan untuk bidik",
                     color = Color(0xFFFF5252),
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
@@ -201,18 +290,17 @@ private fun DreadOutMobileHudScreen(
             }
         }
 
-        // 3. Top Status Pill Minimalis (Bergaya Game Mobile)
+        // 4. Top Status Pill Minimalis
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Kiri Atas: Tombol Jeda & Peta/Jurnal
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 MobileTopPillButton(icon = "⏸️", label = "Jeda") {
@@ -221,38 +309,45 @@ private fun DreadOutMobileHudScreen(
                 MobileTopPillButton(icon = "🗺️", label = "Jurnal") {
                     lastActionText = "Buka Jurnal Linda (-)"
                 }
-                // Indikator FPS & Aksi
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
                         .background(Color.Black.copy(alpha = 0.55f))
                         .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(50))
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Text(
                         text = "$targetFps FPS • ${resMultiplier}x • $lastActionText",
                         color = Color(0xFF81C784),
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             }
 
-            // Kanan Atas: Pengaturan HUD, Log, & Keluar
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 MobileTopPillButton(
+                    icon = "🎛️",
+                    label = "Atur HUD",
+                    bgColor = if (showHudCustomizer) Color(0xFF1565C0).copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.55f)
+                ) {
+                    showHudCustomizer = !showHudCustomizer
+                    if (showHudCustomizer) showDiagnosticsOverlay = false
+                }
+                MobileTopPillButton(
                     icon = "⚙️",
-                    label = if (showDiagnosticsOverlay) "Tutup Info" else "Info Sistem"
+                    label = "Info"
                 ) {
                     showDiagnosticsOverlay = !showDiagnosticsOverlay
+                    if (showDiagnosticsOverlay) showHudCustomizer = false
                 }
                 MobileTopPillButton(
                     icon = "🎮",
-                    label = if (showTouchControls) "HUD: ON" else "HUD: OFF"
+                    label = if (showTouchControls) "ON" else "OFF"
                 ) {
                     showTouchControls = !showTouchControls
                 }
@@ -266,7 +361,82 @@ private fun DreadOutMobileHudScreen(
             }
         }
 
-        // 4. Panel Diagnostik Sistem (Muncul bila tombol Info Sistem diklik)
+        // 5. Panel Kustomisasi HUD Interaktif (Opacity, Ukuran Tombol, & Sensitivitas Kamera)
+        if (showHudCustomizer) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = 440.dp)
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF10141F).copy(alpha = 0.95f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Kustomisasi Kontrol Mobile DreadOut 2",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF90CAF9)
+                        )
+                        TextButton(
+                            onClick = {
+                                hudOpacity = 0.85f
+                                buttonScale = 1.0f
+                                lookSensitivity = 1.0f
+                                saveHudSettings(0.85f, 1.0f, 1.0f)
+                            }
+                        ) {
+                            Text("Reset Default", fontSize = 11.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text("Transparansi Tombol (Opacity): ${(hudOpacity * 100).roundToInt()}%", fontSize = 12.sp)
+                    Slider(
+                        value = hudOpacity,
+                        onValueChange = {
+                            hudOpacity = it
+                            saveHudSettings(hudOpacity, buttonScale, lookSensitivity)
+                        },
+                        valueRange = 0.20f..1.0f
+                    )
+
+                    Text("Ukuran Tombol & Joystick: ${(buttonScale * 100).roundToInt()}%", fontSize = 12.sp)
+                    Slider(
+                        value = buttonScale,
+                        onValueChange = {
+                            buttonScale = it
+                            saveHudSettings(hudOpacity, buttonScale, lookSensitivity)
+                        },
+                        valueRange = 0.75f..1.30f
+                    )
+
+                    Text("Sensitivitas Usap Kamera (Right-Stick): ${String.format(Locale.US, "%.1fx", lookSensitivity)}", fontSize = 12.sp)
+                    Slider(
+                        value = lookSensitivity,
+                        onValueChange = {
+                            lookSensitivity = it
+                            saveHudSettings(hudOpacity, buttonScale, lookSensitivity)
+                        },
+                        valueRange = 0.4f..2.5f
+                    )
+
+                    Button(
+                        onClick = { showHudCustomizer = false },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Simpan & Tutup")
+                    }
+                }
+            }
+        }
+
+        // 6. Panel Diagnostik Sistem
         if (showDiagnosticsOverlay) {
             Card(
                 modifier = Modifier
@@ -298,128 +468,132 @@ private fun DreadOutMobileHudScreen(
             }
         }
 
-        // 5. KONTROLER MOBILE DREADOUT 2 (Ergonomis untuk Jempol Kiri & Kanan)
+        // 7. KONTROLER MOBILE DREADOUT 2 (Mengikuti Skala & Opacity Pilihan Pengguna)
         if (showTouchControls) {
-
-            // === A. SISI KIRI BAWAH: VIRTUAL ANALOG JOYSTICK ===
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 32.dp, bottom = 22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Tombol Lari / Crouch di atas Analog Kiri
-                MobileActionCircleButton(
-                    icon = "👟",
-                    label = "SPRINT",
-                    size = 48.dp,
-                    accentColor = Color(0xFF90CAF9),
-                    onClick = { lastActionText = "Lari Cepat (L-Stick / L)" }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                VirtualMobileJoystick(
-                    size = 135.dp,
-                    onMove = { dirLabel ->
-                        lastActionText = "Gerak: $dirLabel"
-                    }
-                )
-            }
-
-            // === B. SISI KANAN BAWAH: CLUSTER AKSI MOBILE DREADOUT 2 ===
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 26.dp, bottom = 20.dp)
-                    .size(width = 250.dp, height = 210.dp)
+                    .fillMaxSize()
+                    .alpha(hudOpacity)
             ) {
-                // 1. Tombol Utama Besar (Pojok Kanan Bawah): JEPRET KAMERA / SERANG SENJATA
-                MobileActionCircleButton(
-                    icon = if (isIrisCameraMode) "📸" else "🪓",
-                    label = if (isIrisCameraMode) "BLITZ" else "SERANG",
-                    size = 84.dp,
-                    accentColor = if (isIrisCameraMode) Color(0xFF00E5FF) else Color(0xFFEF5350),
-                    isPrimary = true,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = (-6).dp, y = (-6).dp),
-                    onClick = {
-                        lastActionText = if (isIrisCameraMode) "ZR: Jepret Flash IrisPhone!" else "Y: Ayun Senjata Melee!"
-                    }
-                )
-
-                // 2. Tombol Kiri Bawah (Di sebelah kiri tombol Serang): HINDAR / DODGE (B)
-                MobileActionCircleButton(
-                    icon = "💨",
-                    label = "HINDAR",
-                    size = 58.dp,
-                    accentColor = Color(0xFFFFB74D),
+                // === A. SISI KIRI BAWAH: VIRTUAL ANALOG JOYSTICK ===
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .offset(x = 24.dp, y = (-4).dp),
-                    onClick = {
-                        lastActionText = "B: Menghindar (Dodge)"
-                    }
-                )
+                        .padding(start = 30.dp, bottom = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    MobileActionCircleButton(
+                        icon = "👟",
+                        label = "SPRINT",
+                        size = (48 * buttonScale).dp,
+                        accentColor = Color(0xFF90CAF9),
+                        onClick = { lastActionText = "Lari Cepat (L-Stick / L)" }
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    VirtualMobileJoystick(
+                        size = (132 * buttonScale).dp,
+                        onMove = { dirLabel ->
+                            lastActionText = "Gerak: $dirLabel"
+                        }
+                    )
+                }
 
-                // 3. Tombol Tengah Melengkung: INTERAKSI / AMBIL BARANG (A)
-                MobileActionCircleButton(
-                    icon = "🖐️",
-                    label = "INTERAKSI",
-                    size = 58.dp,
-                    accentColor = Color(0xFF81C784),
+                // === B. SISI KANAN BAWAH: CLUSTER AKSI MOBILE DREADOUT 2 ===
+                Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset(x = (-18).dp, y = 14.dp),
-                    onClick = {
-                        lastActionText = "A: Periksa / Buka Pintu"
-                    }
-                )
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 24.dp, bottom = 18.dp)
+                        .size(width = (250 * buttonScale).dp, height = (210 * buttonScale).dp)
+                ) {
+                    // 1. Tombol Utama Besar: JEPRET KAMERA / SERANG SENJATA
+                    MobileActionCircleButton(
+                        icon = if (isIrisCameraMode) "📸" else "🪓",
+                        label = if (isIrisCameraMode) "BLITZ" else "SERANG",
+                        size = (82 * buttonScale).dp,
+                        accentColor = if (isIrisCameraMode) Color(0xFF00E5FF) else Color(0xFFEF5350),
+                        isPrimary = true,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = (-6).dp, y = (-6).dp),
+                        onClick = {
+                            lastActionText = if (isIrisCameraMode) "ZR: Jepret Flash IrisPhone!" else "Y: Ayun Senjata Melee!"
+                        }
+                    )
 
-                // 4. Tombol Atas Tengah: BUKA HP IRIS CAMERA (X)
-                MobileActionCircleButton(
-                    icon = "📱",
-                    label = if (isIrisCameraMode) "TUTUP HP" else "IRIS CAM",
-                    size = 60.dp,
-                    accentColor = if (isIrisCameraMode) Color(0xFF00E5FF) else Color(0xFFCE93D8),
-                    isToggled = isIrisCameraMode,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .offset(x = 18.dp, y = 12.dp),
-                    onClick = {
-                        isIrisCameraMode = !isIrisCameraMode
-                        lastActionText = if (isIrisCameraMode) "X: Mode Kamera Iris Aktif" else "X: Mode Eksplorasi"
-                    }
-                )
+                    // 2. Tombol HINDAR / DODGE (B)
+                    MobileActionCircleButton(
+                        icon = "💨",
+                        label = "HINDAR",
+                        size = (56 * buttonScale).dp,
+                        accentColor = Color(0xFFFFB74D),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .offset(x = (22 * buttonScale).dp, y = (-4).dp),
+                        onClick = {
+                            lastActionText = "B: Menghindar (Dodge)"
+                        }
+                    )
 
-                // 5. Tombol Kanan Atas: BIDIK / FOKUS KAMERA (ZL)
-                MobileActionCircleButton(
-                    icon = "🎯",
-                    label = "FOKUS",
-                    size = 56.dp,
-                    accentColor = Color(0xFF4DD0E1),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp),
-                    onClick = {
-                        lastActionText = "ZL: Fokus Bidikan Hantu"
-                    }
-                )
+                    // 3. Tombol INTERAKSI (A)
+                    MobileActionCircleButton(
+                        icon = "🖐️",
+                        label = "INTERAKSI",
+                        size = (56 * buttonScale).dp,
+                        accentColor = Color(0xFF81C784),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(x = (-18 * buttonScale).dp, y = (14 * buttonScale).dp),
+                        onClick = {
+                            lastActionText = "A: Periksa / Buka Pintu"
+                        }
+                    )
 
-                // 6. Tombol Senter (R) di Sisi Kiri Atas Cluster
-                MobileActionCircleButton(
-                    icon = "🔦",
-                    label = if (isFlashlightOn) "SENTER ON" else "SENTER",
-                    size = 52.dp,
-                    accentColor = Color(0xFFFFF176),
-                    isToggled = isFlashlightOn,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = 8.dp, y = 26.dp),
-                    onClick = {
-                        isFlashlightOn = !isFlashlightOn
-                        lastActionText = if (isFlashlightOn) "R: Senter Dinyalakan" else "R: Senter Dimatikan"
-                    }
-                )
+                    // 4. Tombol IRIS CAM (X)
+                    MobileActionCircleButton(
+                        icon = "📱",
+                        label = if (isIrisCameraMode) "TUTUP HP" else "IRIS CAM",
+                        size = (58 * buttonScale).dp,
+                        accentColor = if (isIrisCameraMode) Color(0xFF00E5FF) else Color(0xFFCE93D8),
+                        isToggled = isIrisCameraMode,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .offset(x = (16 * buttonScale).dp, y = (10 * buttonScale).dp),
+                        onClick = {
+                            isIrisCameraMode = !isIrisCameraMode
+                            lastActionText = if (isIrisCameraMode) "X: Mode Kamera Iris Aktif" else "X: Mode Eksplorasi"
+                        }
+                    )
+
+                    // 5. Tombol FOKUS BIDIK (ZL)
+                    MobileActionCircleButton(
+                        icon = "🎯",
+                        label = "FOKUS",
+                        size = (54 * buttonScale).dp,
+                        accentColor = Color(0xFF4DD0E1),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = (-4).dp, y = 4.dp),
+                        onClick = {
+                            lastActionText = "ZL: Fokus Bidikan Hantu"
+                        }
+                    )
+
+                    // 6. Tombol SENTER (R)
+                    MobileActionCircleButton(
+                        icon = "🔦",
+                        label = if (isFlashlightOn) "SENTER ON" else "SENTER",
+                        size = (50 * buttonScale).dp,
+                        accentColor = Color(0xFFFFF176),
+                        isToggled = isFlashlightOn,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = (8 * buttonScale).dp, y = (24 * buttonScale).dp),
+                        onClick = {
+                            isFlashlightOn = !isFlashlightOn
+                            lastActionText = if (isFlashlightOn) "R: Senter Dinyalakan" else "R: Senter Dimatikan"
+                        }
+                    )
+                }
             }
         }
     }
@@ -431,7 +605,7 @@ private fun VirtualMobileJoystick(
     onMove: (String) -> Unit
 ) {
     var knobOffset by remember { mutableStateOf(Offset.Zero) }
-    val maxRadiusPx = 110f
+    val maxRadiusPx = 105f
 
     Box(
         modifier = Modifier
@@ -480,7 +654,6 @@ private fun VirtualMobileJoystick(
             },
         contentAlignment = Alignment.Center
     ) {
-        // Cincin Arah Dalam
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawCircle(
                 color = Color.White.copy(alpha = 0.12f),
@@ -488,17 +661,16 @@ private fun VirtualMobileJoystick(
             )
         }
 
-        // Tuas Geser (Thumbstick Knob)
         Box(
             modifier = Modifier
                 .offset { IntOffset(knobOffset.x.roundToInt(), knobOffset.y.roundToInt()) }
-                .size(54.dp)
+                .size(size * 0.40f)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.38f))
                 .border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Text(text = "✥", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(text = "✥", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -514,7 +686,7 @@ private fun MobileActionCircleButton(
     isToggled: Boolean = false,
     onClick: () -> Unit
 ) {
-    val bgAlpha = if (isToggled) 0.42f else if (isPrimary) 0.30f else 0.18f
+    val bgAlpha = if (isToggled) 0.45f else if (isPrimary) 0.32f else 0.18f
     val borderColor = if (isToggled || isPrimary) accentColor.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.45f)
 
     Box(
@@ -532,15 +704,15 @@ private fun MobileActionCircleButton(
         ) {
             Text(
                 text = icon,
-                fontSize = if (isPrimary) 24.sp else 16.sp
+                fontSize = if (isPrimary) 22.sp else 15.sp
             )
             Text(
                 text = label,
                 color = Color.White,
-                fontSize = if (isPrimary) 10.sp else 8.sp,
+                fontSize = if (isPrimary) 9.sp else 7.5.sp,
                 fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center,
-                lineHeight = 9.sp
+                lineHeight = 8.5.sp
             )
         }
     }
@@ -559,11 +731,11 @@ private fun MobileTopPillButton(
             .background(bgColor)
             .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(50))
             .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(text = icon, fontSize = 11.sp)
-        Text(text = label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = label, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
     }
 }
