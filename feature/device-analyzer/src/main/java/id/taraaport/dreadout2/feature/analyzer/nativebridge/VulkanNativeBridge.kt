@@ -1,5 +1,6 @@
 package id.taraaport.dreadout2.feature.analyzer.nativebridge
 
+import android.view.Surface
 import id.taraaport.dreadout2.feature.analyzer.model.GpuVulkanInfo
 
 object VulkanNativeBridge {
@@ -7,6 +8,18 @@ object VulkanNativeBridge {
     private external fun queryVulkanGpuInfoNative(): String
     private external fun verifyCustomDriverLibraryNative(soFilePath: String): String
     private external fun initializeEmulationBootNative(romFd: Int, driverPathStr: String, keysPathStr: String): String
+    private external fun startSurfaceRenderLoopNative(surface: Surface, targetFps: Int)
+    private external fun stopSurfaceRenderLoopNative()
+    private external fun updateNativeRenderState(
+        yaw: Float,
+        pitch: Float,
+        moveX: Float,
+        moveY: Float,
+        irisCam: Boolean,
+        flashlight: Boolean,
+        triggerBlitz: Boolean
+    )
+    private external fun getMeasuredFpsNative(): Int
 
     fun getGpuVulkanInfo(): GpuVulkanInfo {
         val raw = queryVulkanGpuInfoNative()
@@ -33,4 +46,26 @@ object VulkanNativeBridge {
     fun startNativeBootSequence(romFd: Int, driverPath: String, keysPath: String): String {
         return initializeEmulationBootNative(romFd, driverPath, keysPath)
     }
+
+    fun startRenderLoop(surface: Surface, targetFps: Int) {
+        startSurfaceRenderLoopNative(surface, targetFps)
+    }
+
+    fun stopRenderLoop() {
+        stopSurfaceRenderLoopNative()
+    }
+
+    fun syncInputToNativeRenderer(
+        yaw: Float,
+        pitch: Float,
+        moveX: Float,
+        moveY: Float,
+        irisCam: Boolean,
+        flashlight: Boolean,
+        triggerBlitz: Boolean = false
+    ) {
+        updateNativeRenderState(yaw, pitch, moveX, moveY, irisCam, flashlight, triggerBlitz)
+    }
+
+    fun getMeasuredFps(): Int = getMeasuredFpsNative()
 }

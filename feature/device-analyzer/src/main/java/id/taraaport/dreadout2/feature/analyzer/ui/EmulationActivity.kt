@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.HapticFeedbackConstants
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import id.taraaport.dreadout2.feature.analyzer.nativebridge.VulkanNativeBridge
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -101,7 +104,10 @@ class EmulationActivity : ComponentActivity() {
                     targetFps = targetFps,
                     driverName = if (driverPath == "SYSTEM_LIBVULKAN") "OEM System" else File(driverPath).name,
                     initialBootLog = bootLogState,
-                    onExitEmulation = { finish() }
+                    onExitEmulation = {
+                        VulkanNativeBridge.stopRenderLoop()
+                        finish()
+                    }
                 )
             }
         }
@@ -109,6 +115,11 @@ class EmulationActivity : ComponentActivity() {
         window?.decorView?.post {
             hideSystemBarsSafe()
         }
+    }
+
+    override fun onDestroy() {
+        VulkanNativeBridge.stopRenderLoop()
+        super.onDestroy()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -151,9 +162,9 @@ private fun DreadOutMobileHudScreen(
     onExitEmulation: () -> Unit
 ) {
     val context = LocalContext.current
+    val localView = LocalView.current
     val hudPrefs = remember { context.getSharedPreferences("taraaport_hud_prefs", Context.MODE_PRIVATE) }
 
-    // State Pengaturan Kustomisasi HUD (Tersimpan Permanen)
     var hudOpacity by remember { mutableFloatStateOf(hudPrefs.getFloat("hud_opacity", 0.85f)) }
     var buttonScale by remember { mutableFloatStateOf(hudPrefs.getFloat("hud_scale", 1.0f)) }
     var lookSensitivity by remember { mutableFloatStateOf(hudPrefs.getFloat("look_sensitivity", 1.0f)) }
@@ -162,13 +173,44 @@ private fun DreadOutMobileHudScreen(
     var showDiagnosticsOverlay by remember { mutableStateOf(false) }
     var showTouchControls by remember { mutableStateOf(true) }
     var isIrisCameraMode by remember { mutableStateOf(false) }
-    var isFlashlightOn by remember { mutableStateOf(false) }
-    var lastActionText by remember { mutableStateOf("Mode Eksplorasi") }
+    var isFlashlightOn by remember { mutableStateOf(true) } // Default nyalakan senter agar visual C++ langsung terlihat
+    var lastActionText by remember { mutableStateOf("Senter Aktif — Geser layar kanan") }
 
-    // State Sudut Pandang Kamera (Right-Stick Touch Look)
     var cameraYaw by remember { mutableFloatStateOf(0f) }
     var cameraPitch by remember { mutableFloatStateOf(0f) }
+    var moveNormX by remember { mutableFloatStateOf(0f) }
+    var moveNormY by remember { mutableFloatStateOf(0f) }
     var crosshairOffset by remember { mutableStateOf(Offset.Zero) }
+    var measuredFps by remember { mutableIntStateOf(targetFps) }
+
+    fun triggerHaptic(strong: Boolean = false) {
+        runCatching {
+            val flag = if (strong) HapticFeedbackConstants.LONG_PRESS else HapticFeedbackConstants.VIRTUAL_KEY
+            localView.performHapticFeedback(flag)
+        }
+    }
+
+    fun pushStateToCPlusPlus(blitz: Boolean = false) {
+        VulkanNativeBridge.syncInputToNativeRenderer(
+            yaw = cameraYaw,
+            pitch = cameraPitch,
+            moveX = moveNormX,
+            moveY = moveNormY,
+            irisCam = isIrisCameraMode,
+            flashlight = isFlashlightOn,
+            triggerBlitz = blitz
+        )
+    }
+
+    // Polling FPS nyata dari C++ setiap 500ms
+    LaunchedEffect(Unit) {
+        pushStateToCPlusPlus(false)
+        while (true) {
+            delay(500)
+            val fps = VulkanNativeBridge.getMeasuredFps()
+            if (fps > 0) measuredFps = fps
+        }
+    }
 
     fun saveHudSettings(opacity: Float, scale: Float, sens: Float) {
         hudPrefs.edit().apply {
@@ -184,29 +226,26 @@ private fun DreadOutMobileHudScreen(
             .fillMaxSize()
             .background(Color(0xFF07090E))
     ) {
-        // 1. Layar Render Utama (SurfaceView)
+        // 1. Layar Render Utama yang Ditenagai Thread C++ ANativeWindow
         AndroidView(
             factory = { ctx ->
                 SurfaceView(ctx).apply {
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {
-                            runCatching {
-                                val canvas = holder.lockCanvas()
-                                if (canvas != null) {
-                                    canvas.drawRGB(9, 11, 16)
-                                    holder.unlockCanvasAndPost(canvas)
-                                }
-                            }
+                            VulkanNativeBridge.startRenderLoop(holder.surface, targetFps)
+                            pushStateToCPlusPlus(false)
                         }
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
-                        override fun surfaceDestroyed(holder: SurfaceHolder) {}
+                        override fun surfaceDestroyed(holder: SurfaceHolder) {
+                            VulkanNativeBridge.stopRenderLoop()
+                        }
                     })
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. ZONA USAP KAMERA (RIGHT-SIDE TOUCH LOOK / RIGHT-STICK SWIPE)
+        // 2. ZONA USAP KAMERA (RIGHT-STICK TOUCH LOOK)
         Box(
             modifier = Modifier
                 .fillMaxWidth(0.58f)
@@ -225,7 +264,7 @@ private fun DreadOutMobileHudScreen(
                             val dx = dragAmount.x * 0.18f * lookSensitivity
                             val dy = dragAmount.y * 0.18f * lookSensitivity
 
-                            cameraYaw = (cameraYaw + dx) % 360f
+                            cameraYaw = (cameraYaw + dx).coerceIn(-90f, 90f)
                             cameraPitch = (cameraPitch - dy).coerceIn(-85f, 85f)
 
                             crosshairOffset = Offset(
@@ -233,12 +272,8 @@ private fun DreadOutMobileHudScreen(
                                 y = (crosshairOffset.y + dragAmount.y * 0.35f).coerceIn(-60f, 60f)
                             )
 
-                            lastActionText = String.format(
-                                Locale.US,
-                                "Kamera R-Stick (Yaw: %.0f°, Pitch: %.0f°)",
-                                cameraYaw,
-                                cameraPitch
-                            )
+                            pushStateToCPlusPlus(false)
+                            lastActionText = String.format(Locale.US, "Kamera (%.0f°, %.0f°)", cameraYaw, cameraPitch)
                         }
                     )
                 }
@@ -254,18 +289,18 @@ private fun DreadOutMobileHudScreen(
             if (isIrisCameraMode) {
                 Box(
                     modifier = Modifier
-                        .size(110.dp)
-                        .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.65f), RoundedCornerShape(8.dp)),
+                        .size(120.dp)
+                        .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.75f), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = "+", color = Color(0xFFFF5252), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "+", color = Color(0xFFFF5252), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 }
             } else {
                 Box(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.35f))
+                        .background(Color.White.copy(alpha = 0.45f))
                 )
             }
         }
@@ -278,7 +313,7 @@ private fun DreadOutMobileHudScreen(
                     .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.45f), RoundedCornerShape(12.dp))
             ) {
                 Text(
-                    text = "● REC [IRIS-GHOST-CAM] | Usap layar kanan untuk bidik",
+                    text = "● REC [IRIS-GHOST-CAM] | Tekan 📸 BLITZ untuk jepret kilat C++",
                     color = Color(0xFFFF5252),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
@@ -290,7 +325,7 @@ private fun DreadOutMobileHudScreen(
             }
         }
 
-        // 4. Top Status Pill Minimalis
+        // 4. Top Status Pill Minimalis (Dengan FPS Nyata dari C++)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -304,9 +339,11 @@ private fun DreadOutMobileHudScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 MobileTopPillButton(icon = "⏸️", label = "Jeda") {
+                    triggerHaptic()
                     lastActionText = "Jeda Permainan (+)"
                 }
                 MobileTopPillButton(icon = "🗺️", label = "Jurnal") {
+                    triggerHaptic()
                     lastActionText = "Buka Jurnal Linda (-)"
                 }
                 Box(
@@ -317,7 +354,7 @@ private fun DreadOutMobileHudScreen(
                         .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Text(
-                        text = "$targetFps FPS • ${resMultiplier}x • $lastActionText",
+                        text = "$measuredFps FPS (Native) • ${resMultiplier}x • $lastActionText",
                         color = Color(0xFF81C784),
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
@@ -335,20 +372,17 @@ private fun DreadOutMobileHudScreen(
                     label = "Atur HUD",
                     bgColor = if (showHudCustomizer) Color(0xFF1565C0).copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.55f)
                 ) {
+                    triggerHaptic()
                     showHudCustomizer = !showHudCustomizer
                     if (showHudCustomizer) showDiagnosticsOverlay = false
                 }
-                MobileTopPillButton(
-                    icon = "⚙️",
-                    label = "Info"
-                ) {
+                MobileTopPillButton(icon = "⚙️", label = "Info") {
+                    triggerHaptic()
                     showDiagnosticsOverlay = !showDiagnosticsOverlay
                     if (showDiagnosticsOverlay) showHudCustomizer = false
                 }
-                MobileTopPillButton(
-                    icon = "🎮",
-                    label = if (showTouchControls) "ON" else "OFF"
-                ) {
+                MobileTopPillButton(icon = "🎮", label = if (showTouchControls) "ON" else "OFF") {
+                    triggerHaptic()
                     showTouchControls = !showTouchControls
                 }
                 MobileTopPillButton(
@@ -356,12 +390,13 @@ private fun DreadOutMobileHudScreen(
                     label = "Keluar",
                     bgColor = Color(0xFFC62828).copy(alpha = 0.75f)
                 ) {
+                    triggerHaptic(true)
                     onExitEmulation()
                 }
             }
         }
 
-        // 5. Panel Kustomisasi HUD Interaktif (Opacity, Ukuran Tombol, & Sensitivitas Kamera)
+        // 5. Panel Kustomisasi HUD Interaktif
         if (showHudCustomizer) {
             Card(
                 modifier = Modifier
@@ -395,7 +430,6 @@ private fun DreadOutMobileHudScreen(
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
-
                     Text("Transparansi Tombol (Opacity): ${(hudOpacity * 100).roundToInt()}%", fontSize = 12.sp)
                     Slider(
                         value = hudOpacity,
@@ -468,7 +502,7 @@ private fun DreadOutMobileHudScreen(
             }
         }
 
-        // 7. KONTROLER MOBILE DREADOUT 2 (Mengikuti Skala & Opacity Pilihan Pengguna)
+        // 7. KONTROLER MOBILE DREADOUT 2 DENGAN HAPTIC FEEDBACK & NATIVE RENDER SYNC
         if (showTouchControls) {
             Box(
                 modifier = Modifier
@@ -487,12 +521,18 @@ private fun DreadOutMobileHudScreen(
                         label = "SPRINT",
                         size = (48 * buttonScale).dp,
                         accentColor = Color(0xFF90CAF9),
-                        onClick = { lastActionText = "Lari Cepat (L-Stick / L)" }
+                        onClick = {
+                            triggerHaptic()
+                            lastActionText = "Lari Cepat (Sprint)"
+                        }
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     VirtualMobileJoystick(
                         size = (132 * buttonScale).dp,
-                        onMove = { dirLabel ->
+                        onMove = { dirLabel, normX, normY ->
+                            moveNormX = normX
+                            moveNormY = normY
+                            pushStateToCPlusPlus(false)
                             lastActionText = "Gerak: $dirLabel"
                         }
                     )
@@ -505,7 +545,7 @@ private fun DreadOutMobileHudScreen(
                         .padding(end = 24.dp, bottom = 18.dp)
                         .size(width = (250 * buttonScale).dp, height = (210 * buttonScale).dp)
                 ) {
-                    // 1. Tombol Utama Besar: JEPRET KAMERA / SERANG SENJATA
+                    // 1. Tombol Utama Besar: JEPRET KAMERA (BLITZ) / SERANG SENJATA
                     MobileActionCircleButton(
                         icon = if (isIrisCameraMode) "📸" else "🪓",
                         label = if (isIrisCameraMode) "BLITZ" else "SERANG",
@@ -516,6 +556,8 @@ private fun DreadOutMobileHudScreen(
                             .align(Alignment.BottomEnd)
                             .offset(x = (-6).dp, y = (-6).dp),
                         onClick = {
+                            triggerHaptic(strong = true)
+                            pushStateToCPlusPlus(blitz = true)
                             lastActionText = if (isIrisCameraMode) "ZR: Jepret Flash IrisPhone!" else "Y: Ayun Senjata Melee!"
                         }
                     )
@@ -530,6 +572,7 @@ private fun DreadOutMobileHudScreen(
                             .align(Alignment.BottomStart)
                             .offset(x = (22 * buttonScale).dp, y = (-4).dp),
                         onClick = {
+                            triggerHaptic()
                             lastActionText = "B: Menghindar (Dodge)"
                         }
                     )
@@ -544,6 +587,7 @@ private fun DreadOutMobileHudScreen(
                             .align(Alignment.Center)
                             .offset(x = (-18 * buttonScale).dp, y = (14 * buttonScale).dp),
                         onClick = {
+                            triggerHaptic()
                             lastActionText = "A: Periksa / Buka Pintu"
                         }
                     )
@@ -559,7 +603,9 @@ private fun DreadOutMobileHudScreen(
                             .align(Alignment.TopCenter)
                             .offset(x = (16 * buttonScale).dp, y = (10 * buttonScale).dp),
                         onClick = {
+                            triggerHaptic(strong = true)
                             isIrisCameraMode = !isIrisCameraMode
+                            pushStateToCPlusPlus(false)
                             lastActionText = if (isIrisCameraMode) "X: Mode Kamera Iris Aktif" else "X: Mode Eksplorasi"
                         }
                     )
@@ -574,7 +620,11 @@ private fun DreadOutMobileHudScreen(
                             .align(Alignment.TopEnd)
                             .offset(x = (-4).dp, y = 4.dp),
                         onClick = {
-                            lastActionText = "ZL: Fokus Bidikan Hantu"
+                            triggerHaptic()
+                            cameraYaw = 0f
+                            cameraPitch = 0f
+                            pushStateToCPlusPlus(false)
+                            lastActionText = "ZL: Reset & Fokus Tengah"
                         }
                     )
 
@@ -589,7 +639,9 @@ private fun DreadOutMobileHudScreen(
                             .align(Alignment.TopStart)
                             .offset(x = (8 * buttonScale).dp, y = (24 * buttonScale).dp),
                         onClick = {
+                            triggerHaptic()
                             isFlashlightOn = !isFlashlightOn
+                            pushStateToCPlusPlus(false)
                             lastActionText = if (isFlashlightOn) "R: Senter Dinyalakan" else "R: Senter Dimatikan"
                         }
                     )
@@ -602,7 +654,7 @@ private fun DreadOutMobileHudScreen(
 @Composable
 private fun VirtualMobileJoystick(
     size: Dp,
-    onMove: (String) -> Unit
+    onMove: (String, Float, Float) -> Unit
 ) {
     var knobOffset by remember { mutableStateOf(Offset.Zero) }
     val maxRadiusPx = 105f
@@ -624,11 +676,11 @@ private fun VirtualMobileJoystick(
                 detectDragGestures(
                     onDragEnd = {
                         knobOffset = Offset.Zero
-                        onMove("Diam")
+                        onMove("Diam", 0f, 0f)
                     },
                     onDragCancel = {
                         knobOffset = Offset.Zero
-                        onMove("Diam")
+                        onMove("Diam", 0f, 0f)
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
@@ -641,6 +693,9 @@ private fun VirtualMobileJoystick(
                             Offset(cos(angle) * maxRadiusPx, sin(angle) * maxRadiusPx)
                         }
 
+                        val normX = (knobOffset.x / maxRadiusPx).coerceIn(-1f, 1f)
+                        val normY = (-knobOffset.y / maxRadiusPx).coerceIn(-1f, 1f)
+
                         val dir = when {
                             knobOffset.y < -35f -> "Maju"
                             knobOffset.y > 35f -> "Mundur"
@@ -648,7 +703,7 @@ private fun VirtualMobileJoystick(
                             knobOffset.x > 35f -> "Kanan"
                             else -> "Jalan"
                         }
-                        onMove(dir)
+                        onMove(dir, normX, normY)
                     }
                 )
             },
