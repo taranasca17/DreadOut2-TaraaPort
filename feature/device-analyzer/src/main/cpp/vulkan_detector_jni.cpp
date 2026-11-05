@@ -101,8 +101,8 @@ namespace {
 
                             // Pola kedalaman koridor (Grid perspektif sederhana)
                             int depthDist = std::abs(y - horizonY) + 12;
-                            intchecker = ((x - spotCenterX) * 64 / depthDist + static_cast<int>(worldWalkPhase * 10.0f)) & 7;
-                            if (isFloor && (intchecker == 0)) {
+                            int checker = ((x - spotCenterX) * 64 / depthDist + static_cast<int>(worldWalkPhase * 10.0f)) & 7;
+                            if (isFloor && (int checker == 0)) {
                                 r += 6; g += 8; b += 11;
                             }
 
