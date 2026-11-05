@@ -1,6 +1,7 @@
 package id.taraaport.dreadout2.feature.analyzer.data
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import id.taraaport.dreadout2.feature.analyzer.model.GameRomInfo
@@ -40,6 +41,16 @@ class GameRomRepository(private val context: Context) {
 
     suspend fun inspectAndRegisterRom(uri: Uri): Result<GameRomInfo> = withContext(Dispatchers.IO) {
         try {
+            // Ambil izin baca persisten jika disediakan oleh File Manager
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+                // Abaikan jika provider tidak mendukung persistable permission
+            }
+
             var displayName = "Unknown_Game.nsp"
             var fileSize = 0L
 
@@ -55,7 +66,6 @@ class GameRomRepository(private val context: Context) {
             val inputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(IllegalArgumentException("Gagal membuka file ROM dari penyimpanan HP."))
 
-            // Baca 64 KB pertama untuk memeriksa Magic Header PFS0 (NSP) atau HEAD (XCI) serta tabel Title ID
             val headerBuffer = ByteArray(65536)
             val bytesRead = inputStream.use { it.read(headerBuffer) }
 
@@ -63,13 +73,11 @@ class GameRomRepository(private val context: Context) {
                 return@withContext Result.failure(IllegalArgumentException("File terlalu kecil atau kosong."))
             }
 
-            // 1. Cek Magic Bytes NSP: 'P', 'F', 'S', '0' pada offset 0x00
             val isNspPfs0 = headerBuffer[0] == 'P'.code.toByte() &&
                             headerBuffer[1] == 'F'.code.toByte() &&
                             headerBuffer[2] == 'S'.code.toByte() &&
                             headerBuffer[3] == '0'.code.toByte()
 
-            // 2. Cek Magic Bytes XCI: 'H', 'E', 'A', 'D' pada offset 0x100 (256)
             val isXciHead = bytesRead >= 260 &&
                             headerBuffer[256] == 'H'.code.toByte() &&
                             headerBuffer[257] == 'E'.code.toByte() &&
@@ -84,7 +92,6 @@ class GameRomRepository(private val context: Context) {
                 )
             }
 
-            // Pindai string ASCII di dalam tabel header PFS0/HEAD untuk mencari Title ID 16-karakter hex
             val headerAscii = String(headerBuffer, 0, bytesRead, Charsets.ISO_8859_1).uppercase(Locale.US)
             val hasDreadOutId = headerAscii.contains(DREADOUT2_TITLE_ID) ||
                                 displayName.contains(DREADOUT2_TITLE_ID, ignoreCase = true) ||
@@ -138,7 +145,6 @@ class GameRomRepository(private val context: Context) {
                 ?: return@withContext Result.failure(IllegalArgumentException("Gagal membuat file sampel NSP."))
 
             out.use { stream ->
-                // Tulis Magic Header resmi PFS0 (NSP) + String Table yang memuat Title ID DreadOut 2 (0100626015258000)
                 val sampleHeader = "PFS0\u0001\u0000\u0000\u0000\u0020\u0000\u0000\u0000\u0000\u0000\u0000\u0000" +
                         "0100626015258000.tik\u00000100626015258000.cert\u0000DreadOut2_Switch_TaraaPort_SamplePayload"
                 stream.write(sampleHeader.toByteArray(Charsets.ISO_8859_1))
@@ -158,7 +164,7 @@ class GameRomRepository(private val context: Context) {
     ): String {
         bootManifestFile.parentFile?.mkdirs()
         val json = JSONObject().apply {
-            put("app_version", "0.5.0-alpha")
+            put("app_version", "0.6.1-alpha")
             put("timestamp", System.currentTimeMillis())
             put("title_id", romInfo.detectedTitleId)
             put("rom_file_name", romInfo.fileName)
